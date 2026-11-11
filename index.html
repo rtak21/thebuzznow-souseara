@@ -88,6 +88,8 @@
 .kpi .lbl{font-size:24px;line-height:30px;font-weight:600}
 .kpi.hero{background:var(--seara-orange)}
 .kpi.hero .var.down{color:var(--ink-wine)}
+.split{display:flex;gap:10px;align-items:baseline;font-size:22px;line-height:28px;font-weight:600;white-space:nowrap}
+.split b{font-weight:900}
 /* Overview do mês */
 .ov{display:grid;grid-template-columns:1fr 1fr;gap:0;flex:1;min-height:0}
 .ov-left{display:flex;flex-direction:column;gap:20px;padding-right:56px}
@@ -292,7 +294,7 @@ const NET_NAME = {instagram:"Instagram",facebook:"Facebook",tiktok:"TikTok"};
 const NET_SERIES = {instagram:"var(--series-ig)",facebook:"var(--series-fb)",tiktok:"var(--series-tt)"};
 const FORMATS = {"feed-4x5":["Feed",4/5],"carrossel-4x5":["Carrossel",4/5],"reels-9x16":["Reels",9/16],"stories-9x16":["Stories",9/16],"video-9x16":["Vídeo",9/16],"post-1x1":["Post",1]};
 const BASES = {reach:"alcance",views:"visualizações",followers:"seguidores"};
-const LIM = {analysis:600, caption:60, comments:800, ltitle:50, ltext:220, title:80, contact:120};
+const LIM = {overviewText:1600, analysis:600, caption:60, comments:800, ltitle:50, ltext:220, title:80, contact:120};
 const URL_HOSTS = new Set(["instagram.com","www.instagram.com","facebook.com","www.facebook.com","m.facebook.com","fb.watch","tiktok.com","www.tiktok.com","vm.tiktok.com"]);
 const MONTHS = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
 const DRAFT_KEY = "sou-seara-relatorio-draft";
@@ -335,12 +337,12 @@ function validUrl(s){
 }
 
 /* ---------- estado ---------- */
-function emptyNet(){ return {followers:0,posts:0,reach:0,views:0,interactions:0,analysis:"",
+function emptyNet(){ return {followers:0,posts:0,postsOwn:0,postsCollab:0,reach:0,views:0,interactions:0,analysis:"",
   top:[0,1,2].map(emptyTop)}; }
 function emptyTop(){ return {image:null,format:"feed-4x5",url:"",views:0,reach:0,interactions:0,focalX:50,focalY:50}; }
 const TOP_MAX = 5;
 function emptyState(month){
-  return {schemaVersion:SCHEMA, client:"sou-seara", month, title:"Relatório de Social", contactLine:"",
+  return {schemaVersion:SCHEMA, client:"sou-seara", month, title:"Relatório de Social", contactLine:"", overviewText:{title:"Overview",text:""},
     engagementConfig:{instagram:{base:"reach"},facebook:{base:"reach"},tiktok:{base:"reach"}},
     hiddenSlides:[], previousManual:null, previousSnapshot:null,
     networks:{instagram:emptyNet(),facebook:emptyNet(),tiktok:emptyNet()},
@@ -373,12 +375,13 @@ function sanitize(raw){
   const o = emptyState(raw.month);
   o.title = str(raw.title, LIM.title) || o.title;
   o.contactLine = str(raw.contactLine, LIM.contact);
+  o.overviewText = {title: str(raw.overviewText?.title, LIM.ltitle) || "Overview", text: str(raw.overviewText?.text, LIM.overviewText)};
   for (const n of NETS){
     const b = raw.engagementConfig?.[n]?.base;
     if (BASES[b]) o.engagementConfig[n].base = b;
     const r = raw.networks?.[n]; if (!r || typeof r !== "object") continue;
     const t = o.networks[n];
-    for (const k of ["followers","posts","reach","views","interactions"]) t[k] = num(r[k]);
+    for (const k of ["followers","posts","postsOwn","postsCollab","reach","views","interactions"]) t[k] = num(r[k]);
     t.analysis = str(r.analysis, LIM.analysis);
     if (Array.isArray(r.top)) t.top = r.top.slice(0,TOP_MAX).map(c => ({image: img(c?.image), format: fmt(c?.format), url: url(c?.url),
       views: num(c?.views), reach: num(c?.reach), interactions: num(c?.interactions), focalX: pct(c?.focalX), focalY: pct(c?.focalY)}));
@@ -514,6 +517,7 @@ function buildDeck(){
   const autoHide = (id, cond) => ({id, auto: cond});
   d.push({...autoHide("capa",false), type:"capa", label:"Capa"});
   d.push({...autoHide("overview",false), type:"overview", label:"Overview do mês"});
+  d.push({...autoHide("overview-texto", !S.overviewText.text.trim()), type:"texto", label:"Overview em texto"});
   for (const n of NETS) d.push({...autoHide(`comparativo-${n}`,!hasPrev()), type:"comparativo", net:n, label:`Comparativo — ${NET_NAME[n]}`});
   for (const n of NETS){
     const nm = NET_NAME[n], net = S.networks[n];
@@ -560,9 +564,17 @@ function frame(item, w, hgt){
   return h("div",{class:"frame", style}, inner);
 }
 
+/* Publicações do Instagram: nossas × collab (digitado à mão) */
+function postsSplit(n, c){
+  if (n !== "instagram" || !(c.postsOwn || c.postsCollab)) return null;
+  return h("span",{class:"split"},
+    h("span",{}, h("b",{class:"num",text:fmtInt(c.postsOwn)}), " nossas"),
+    h("span",{"aria-hidden":"true",text:"·"}),
+    h("span",{}, h("b",{class:"num",text:fmtInt(c.postsCollab)}), " collab"));
+}
 function renderSlide(s, pageNo){
   animIdx = 0;
-  const bgOf = {capa:"orange",overview:"white",comparativo:"cream",divisoria:null,rede:"white",top:"cream",comentarios:"red",aprendizados:"white",encerramento:"orange"};
+  const bgOf = {capa:"orange",overview:"white",texto:"cream",comparativo:"cream",divisoria:null,rede:"white",top:"cream",comentarios:"red",aprendizados:"white",encerramento:"orange"};
   let bg = bgOf[s.type];
   if (s.type === "divisoria") bg = "orange";
   const el = h("div",{class:`slide bg-${bg}`, "data-key":s.key});
@@ -613,6 +625,13 @@ function renderSlide(s, pageNo){
               metric("views","Visualizações","views"), metric("heart","Engajamento","interactions"))))),
         footer(pageNo));
     },
+    texto(){
+      el.append(h("div",{class:"s-pad"},
+        h("div",{class:"s-head"}, h("div",{}, A(h("p",{class:"eyebrow",text:monthLabel(S.month)})), A(h("h1",{class:"t-display-l",text:S.overviewText.title || "Overview"})))),
+        A(h("div",{class:"note fit","data-fit":"",style:{flex:"1",minHeight:"0",background:"var(--white)"}},
+          h("p",{class:"t-body",style:{whiteSpace:"pre-wrap",margin:"0",fontSize:"30px",lineHeight:"1.5"},text:S.overviewText.text || "—"})))),
+        footer(pageNo));
+    },
     comparativo(){
       if (!hasPrev()){
         el.append(h("div",{class:"s-pad",style:{justifyContent:"center",alignItems:"center",textAlign:"center"}},
@@ -637,6 +656,7 @@ function renderSlide(s, pageNo){
             h("span",{class:"was num",title:isRate ? fmtPct(prv,2) : (prv == null ? "" : fmtInt(prv)),text:isRate ? fmtPct(prv,2) : fmtAbbr(prv)}),
             h("span",{class:"arrow","aria-hidden":"true",text:"→"}),
             countEl("mid", cur, isRate ? "pct" : "abbr")),
+          k === "posts" ? postsSplit(n, c) : null,
           pill));
       });
       el.append(h("div",{class:"s-pad"},
@@ -658,7 +678,7 @@ function renderSlide(s, pageNo){
       const n = s.net, c = S.networks[n], p = prevNet(n);
       const r = rate(n, c), pr = prevRate(n);
       const k = (lbl, key, hero) => A(h("div",{class:`kpi${hero?" hero":""}`},
-        h("span",{class:"lbl",text:lbl}), countEl(hero ? "big" : "mid", c[key]), p ? varEl(variation(c[key], p[key])," vs mês ant.") : null));
+        h("span",{class:"lbl",text:lbl}), countEl(hero ? "big" : "mid", c[key]), key === "posts" ? postsSplit(n, c) : null, p ? varEl(variation(c[key], p[key])," vs mês ant.") : null));
       el.append(h("div",{class:"s-pad"},
         h("div",{class:"s-head"}, h("div",{}, A(h("p",{class:"eyebrow",text:monthLabel(S.month)})), A(h("h1",{class:"t-display-l",text:`Overview ${NET_NAME[n]}`})))),
         h("div",{style:{display:"grid",gridTemplateColumns:"1fr 560px",gap:"32px",flex:"1",minHeight:"0"}},
@@ -879,6 +899,10 @@ function renderForm(deck){
     capa(){ f.append(textField("Título","title",S.title,LIM.title,v => S.title = v),
       h("p",{class:"help",text:`A pílula da capa mostra o mês de referência (${monthLabel(S.month)}). O título aparece no rodapé dos slides.`})); },
     overview(){ f.append(h("p",{class:"help",text:"Os números vêm dos slides de cada rede. À esquerda, os seguidores de cada rede; à direita, a soma das 3 redes (Engajamento = interações)."})); },
+    texto(){ f.append(
+      textField("Título do slide","ovt-title",S.overviewText.title,LIM.ltitle,v => S.overviewText.title = v),
+      textField("Texto","ovt-text",S.overviewText.text,LIM.overviewText,v => S.overviewText.text = v,true),
+      h("p",{class:"help",text:"Fica oculto enquanto o texto estiver vazio. Quebras de linha são mantidas."})); },
     comparativo(){ f.append(h("p",{class:"help",text: PREV ? `Mês anterior carregado: ${monthLabel(PREV.month)} (somente leitura). Os números dele vão gravados junto no .json deste mês.` : S.previousSnapshot ? `Comparando com ${monthLabel(S.previousSnapshot.month)}: números gravados neste .json. Não precisa carregar o mês anterior de novo.` : S.previousManual ? "Usando os números do mês anterior digitados em Configurações." : "Sem dados do mês anterior."})); },
     divisoria(){ f.append(h("p",{class:"help",text:"Slide fixo. O destaque em Keynote vem do SVG em svg/keynote-<rede>--on-<fundo>.svg."})); },
     rede(){
@@ -887,6 +911,11 @@ function renderForm(deck){
         h("div",{class:"row2"},
           numField("Seguidores (fim do mês)",`${n}-followers`,c.followers,v => c.followers = v),
           numField("Publicações",`${n}-posts`,c.posts,v => c.posts = v)),
+        n === "instagram" ? h("div",{class:"row2"},
+          numField("Publicações nossas",`${n}-posts-own`,c.postsOwn,v => c.postsOwn = v),
+          numField("Publicações collab",`${n}-posts-collab`,c.postsCollab,v => c.postsCollab = v)) : null,
+        (n === "instagram" && (c.postsOwn || c.postsCollab) && c.postsOwn + c.postsCollab !== c.posts)
+          ? h("p",{class:"alert",text:`Nossas + collab = ${fmtInt(c.postsOwn + c.postsCollab)}, mas o total de publicações é ${fmtInt(c.posts)}. Confira os números.`}) : null,
         h("div",{class:"row2"},
           numField(n === "tiktok" ? "Alcance (espectadores únicos)" : "Alcance",`${n}-reach`,c.reach,v => c.reach = v),
           numField("Visualizações",`${n}-views`,c.views,v => c.views = v)),
@@ -951,7 +980,7 @@ function gemPayload(){
   for (const n of NETS){
     const c = S.networks[n], p = prevNet(n), v = k => p ? (variation(c[k], p[k])?.novo ? "novo" : r1(variation(c[k], p[k])?.v)) : null;
     const rt = rate(n,c), prt = prevRate(n);
-    redes[NET_NAME[n]] = {seguidores:c.followers, publicacoes:c.posts, alcance:c.reach, visualizacoes:c.views, interacoes:c.interactions,
+    redes[NET_NAME[n]] = {seguidores:c.followers, publicacoes:c.posts, ...(n === "instagram" ? {publicacoes_nossas:c.postsOwn, publicacoes_collab:c.postsCollab} : {}), alcance:c.reach, visualizacoes:c.views, interacoes:c.interactions,
       taxa_engajamento_pct:r2(rt), base_da_taxa:BASES[S.engagementConfig[n].base],
       variacao_pct:{seguidores:v("followers"), publicacoes:v("posts"), alcance:v("reach"), visualizacoes:v("views"), interacoes:v("interactions"),
         taxa_engajamento:(rt != null && prt != null) ? r1(variation(rt,prt)?.v) : null},
